@@ -136,8 +136,8 @@ dataDir <- paste(workDir, "1_inhouse_scrna_seq", sep = "/") # Please change this
 resDir <- paste(workDir, "2_inhouse_scrna_seq_result", sep = "/")
 
 expID <- "inhouse_3prime_tumor"
-readFlag <- FALSE
-inteFlag <- FALSE
+readFlag <- TRUE
+inteFlag <- TRUE
 inteFilter <- 100 # Minimum cell number for integration
 clstFlag <- TRUE
 
@@ -241,8 +241,14 @@ if (clstFlag) {
 	pst <- Sys.time()
 	inteObjs <- readRDS(paste(intePf, "unprocessed_integrated_seurat_object.RDS", sep = ""))
 
-	inteProObj <- inteSrPro(inteObjs, batchName = c("patient"), plotPf = intePf, rdsSave = TRUE, ndim = 20, plotFeat = sigMarkers)
+	inteProObj <- inteSrPro(inteObjs, batchName = c("patient"), plotPf = intePf, rdsSave = TRUE, ndim = 20, plotFeat = sigMarkers, clusterRes=0.4)
 	cat("Total")
 	print(Sys.time()-pst)
 }
 
+# TODO: Annotated cell types (UMAP, violin of key markers, heatmap, dotplot, cell proportion crossing patients, cancer TAM ratio, batch effect)
+# TODO: Subcluster TAM/TAM+DC, check the PD-L1+ and SIGLEC15+ cell number, screen the resolution
+# TODO: Build a clustree to determine that optimal resolution
+# TODO: TAM subcluster: UMAP, marker heatmap and plots
+# TODO: Supervised clustering????
+# TODO: CCI
