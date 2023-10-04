@@ -262,6 +262,77 @@ if (majorVisFlag) {
 		proObj@meta.data$major_cell_type[proObj@meta.data$seurat_clusters == ic] <- cellAnnDf$cell_type[cellAnnDf$cluster == ic]
 	}
 	print(head(proObj@meta.data))
+
+	cat("Cell proportions\n")
+
+	scCts <- proObj@meta.data %>%
+		group_by(patient, seurat_clusters) %>%
+		summarize(n = n())
+
+	figs1c <- ggplot(scCts, aes(x = patient, y = n, fill = seurat_clusters)) +
+		geom_bar(stat = "identity", position = "fill", color = "gray") +
+		coord_flip() +
+		labs(x = "Sample ID", y = "Cell proportion", fill = "Cluster (r = 0.8)") +
+		theme_classic()
+	ggsave(plot = figs1c, filename = paste(intePf, "FigS1C_BAR.png", sep = ""), dpi = 300, width = 9, heigh = 6)
+	saveRDS(figs1c, paste(intePf, "FigS1C.RDS", sep = ""))
+
+	mcCts <- proObj@meta.data %>%
+		group_by(patient, major_cell_type) %>%
+		summarize(n = n())
+	print(head(mcCts))
+
+	figs1h <- ggplot(mcCts, aes(x = patient, y = n, fill = major_cell_type)) +
+		geom_bar(stat = "identity", position = "fill", color = "gray") +
+		scale_fill_brewer(palette = "Spectral") +
+		coord_flip() +
+		labs(x = "Sample ID", y = "Cell proportion", fill = "General cell type\nin TME") +
+		theme_classic()
+	ggsave(plot = figs1h, filename = paste(intePf, "FigS1H_BAR.png", sep = ""), dpi = 300, width = 9, heigh = 6)
+	saveRDS(figs1h, paste(intePf, "FigS1H.RDS", sep = ""))
+
+	proObj@meta.data$PDL1_expr <- proObj[["RNA"]]@data["CD274",]
+	proObj@meta.data$PDL1_status <- ifelse(proObj@meta.data$PDL1_expr > 0, "PDL1+", "PDL1-")
+
+	pdl1Cts <- proObj@meta.data %>%
+		filter(major_cell_type == "Cancer cell" | major_cell_type == "TAM") %>%
+		group_by(patient, major_cell_type, PDL1_status) %>%
+		summarize(n = n())
+
+	pdl1Spr <- as.data.frame(spread(pdl1Cts, "major_cell_type", "n"))
+	pdl1Spr$CM_ratio <- pdl1Spr$`Cancer cell`/pdl1Spr$TAM
+
+	cmSpr <- mcCts %>%
+		filter(major_cell_type == "Cancer cell"|major_cell_type == "TAM") %>%
+		spread(major_cell_type, n)
+	cmSpr$CM_ratio <- cmSpr$`Cancer cell`/cmSpr$TAM
+	cmSpr$PDL1_status <- "PDL1+ & PDL1-"
+
+	cmRatio <- rbind(cmSpr, pdl1Spr)
+
+
+	figs1g <- ggplot(cmRatio, aes(x = PDL1_status, y = CM_ratio, fill = patient)) +
+		geom_bar(stat = "identity", color = "gray", position = "dodge") +
+		scale_fill_brewer(palette = "Dark2") +
+		coord_flip() +
+		labs(x = "PD-L1 status", y = "Cancer cell/TAM ratio", fill = "Sample ID") +
+		theme_classic()
+	ggsave(plot = figs1g, filename = paste(intePf, "FigS1G_BAR.png", sep = ""), dpi = 300, width = 9, heigh = 6)
+	saveRDS(figs1g, paste(intePf, "FigS1G.RDS", sep = ""))
+
+	cat("UMAPs\n")
+	figs1a <- DimPlot(proObj, reduction = "umap", label = TRUE) + labs(color = "Clusters (r = 0.8)", title = "")
+	ggsave(plot = figs1a, filename = paste(intePf, "FigS1A_UMAP.png", sep = ""), dpi = 300, width = 9, heigh = 6)
+	saveRDS(figs1a, paste(intePf, "FigS1A.RDS", sep = ""))
+
+	figs1b <- DimPlot(proObj, reduction = "umap", label = FALSE, group.by = "patient") + labs(color = "Sample ID", title = "Batch effect crossing samples")
+	ggsave(plot = figs1b, filename = paste(intePf, "FigS1B_UMAP.png", sep = ""), dpi = 300, width = 9, heigh = 6)
+	saveRDS(figs1b, paste(intePf, "FigS1B.RDS", sep = ""))
+
+	figs1f <- DimPlot(proObj, reduction = "umap", label = FALSE, group.by = "major_cell_type") + labs(color = "General cell type\nin TME", title = "Annotated and merged cell types")
+	ggsave(plot = figs1f, filename = paste(intePf, "FigS1F_UMAP.png", sep = ""), dpi = 600, width = 9, heigh = 6)
+	saveRDS(figs1f, paste(intePf, "FigS1F.RDS", sep = ""))
+
 }
 # TODO: Annotated cell types (UMAP, violin of key markers, heatmap, dotplot, cell proportion crossing patients, cancer TAM ratio, batch effect)
 # TODO: Subcluster TAM/TAM+DC, check the PD-L1+ and SIGLEC15+ cell number, screen the resolution
