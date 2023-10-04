@@ -3,6 +3,7 @@
 # 02/14/2020
 # Cleaned on 09/27/2023
 
+rm(list = ls())
 srQCPrePro <- function(srsc, plotPf, res = 300) {
 	cat("Start to QC and pre-processing Seurat object...\n")
 	mito.genes <- grep(pattern = "^MT-", x = rownames(srsc@assays[["RNA"]]), value = TRUE)
@@ -29,8 +30,7 @@ srQCPrePro <- function(srsc, plotPf, res = 300) {
 	return(srsc)
 }
 
-inteSrPro <- function(srsc, plotPf, batchName = NULL, res = 300, ndim = 18, rdsSave = FALSE, plotFeat = NULL, jsFlag = FALSE, 
-		      clusterRes = 0.5) {
+inteSrPro <- function(srsc, plotPf, batchName = NULL, res = 300, ndim = 18, rdsSave = FALSE, plotFeat = NULL, jsFlag = FALSE) {
 	qcgg <- VlnPlot(srsc, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3, group.by = batchName)
 	ggsave(plot = qcgg, filename = paste(plotPf, "QCPlot1.png", sep = ""), dpi = res, width = 9, height = 6) # FigS1x
 
@@ -65,7 +65,7 @@ inteSrPro <- function(srsc, plotPf, batchName = NULL, res = 300, ndim = 18, rdsS
 	ggsave(plot = elGG, filename = paste(plotPf, "Elbow.png", sep = ""), dpi = res, width = 9, heigh = 6) #FigS1x
 
 	srsc <- FindNeighbors(srsc, dims = 1:ndim)
-	srsc <- FindClusters(srsc, resolution = clusterRes)
+	srsc <- FindClusters(srsc)
 
 	srsc <- RunUMAP(srsc, dims = 1:ndim)
 	
@@ -100,9 +100,11 @@ inteSrPro <- function(srsc, plotPf, batchName = NULL, res = 300, ndim = 18, rdsS
 	write.csv(topMarkers, file = paste(plotPf, "top10_pos_markers.csv", sep = "")) 
 
 	topMarkers <- srsc.markers %>% group_by(cluster) %>% top_n(n = 5, wt = avg_log2FC)
-	png(paste(plotPf, "top5_marker_heatmap.png", sep = ""), res = res, width = 16, height = 18, units = "in")
-	print(DoHeatmap(object = srsc, features = topMarkers$gene) + NoLegend())
-	gar = dev.off()
+#	png(paste(plotPf, "top5_marker_heatmap.png", sep = ""), res = res, width = 16, height = 18, units = "in")
+#	print(DoHeatmap(object = srsc, features = topMarkers$gene) + NoLegend())
+#	gar = dev.off()
+	hm <- DoHeatmap(object = srsc, features = topMarkers$gene) + NoLegend()
+	ggsave(paste(plotPf, "top5_marker_heatmap.png", sep = ""), hm, dpi = res, width = 24, height = 18)
 
 	topDotMarkers <- srsc.markers %>% group_by(cluster) %>% top_n(n = 5, wt = avg_log2FC)
 	geneMarkers <- unique(as.character(topDotMarkers$gene))
@@ -136,10 +138,11 @@ dataDir <- paste(workDir, "1_inhouse_scrna_seq", sep = "/") # Please change this
 resDir <- paste(workDir, "2_inhouse_scrna_seq_result", sep = "/")
 
 expID <- "inhouse_3prime_tumor"
-readFlag <- TRUE
-inteFlag <- TRUE
+readFlag <- FALSE
+inteFlag <- FALSE
 inteFilter <- 100 # Minimum cell number for integration
-clstFlag <- TRUE
+clstFlag <- FALSE
+majorVisFlag <- TRUE
 
 dir.create(file.path(resDir, expID), showWarnings = FALSE)
 expDir <- paste(resDir, expID, sep = "/")
@@ -241,11 +244,25 @@ if (clstFlag) {
 	pst <- Sys.time()
 	inteObjs <- readRDS(paste(intePf, "unprocessed_integrated_seurat_object.RDS", sep = ""))
 
-	inteProObj <- inteSrPro(inteObjs, batchName = c("patient"), plotPf = intePf, rdsSave = TRUE, ndim = 20, plotFeat = sigMarkers, clusterRes=0.4)
+	inteProObj <- inteSrPro(inteObjs, batchName = c("patient"), plotPf = intePf, rdsSave = TRUE, ndim = 20, plotFeat = sigMarkers)
 	cat("Total")
 	print(Sys.time()-pst)
 }
 
+if (majorVisFlag) {
+	cat("Merge and visualize all the cells\n")
+	proObj <- readRDS(paste(intePf, "Seurat_Objects_Clustered.RDS", sep = ""))
+	cellAnnDf <- as.data.frame(read_excel(paste(intePf, "ALL_POS_MARKERS.xlsx", sep = "")))
+	rownames(cellAnnDf) <- cellAnnDf[,1]
+	cellAnnDf[,1] <- NULL
+	cellAnnDf <- cellAnnDf[!is.na(cellAnnDf$cell_type),]
+	print(head(cellAnnDf))
+	proObj@meta.data$major_cell_type <- "NA"
+	for (ic in cellAnnDf$cluster) {
+		proObj@meta.data$major_cell_type[proObj@meta.data$seurat_clusters == ic] <- cellAnnDf$cell_type[cellAnnDf$cluster == ic]
+	}
+	print(head(proObj@meta.data))
+}
 # TODO: Annotated cell types (UMAP, violin of key markers, heatmap, dotplot, cell proportion crossing patients, cancer TAM ratio, batch effect)
 # TODO: Subcluster TAM/TAM+DC, check the PD-L1+ and SIGLEC15+ cell number, screen the resolution
 # TODO: Build a clustree to determine that optimal resolution
