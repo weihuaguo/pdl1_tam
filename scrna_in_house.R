@@ -131,6 +131,7 @@ suppressMessages(library(ggplot2))
 suppressMessages(library(ggpubr))
 suppressMessages(library(stringr))
 suppressMessages(library(readxl))
+suppressMessages(library(RColorBrewer))
 suppressMessages(library(MAST))
 
 workDir <- "/home/weihua/mnts/smb_plee/Group/weihua/pdl1_data_hub"
@@ -148,7 +149,6 @@ dir.create(file.path(resDir, expID), showWarnings = FALSE)
 expDir <- paste(resDir, expID, sep = "/")
 
 intePf <- paste(expDir, "/", expID, "_Integrated_Results_", sep = "")
-
 
 if (readFlag) {
 	inFiles <- list.files(dataDir, pattern = "_filtered_gene_bc_matrices")
@@ -255,6 +255,7 @@ if (majorVisFlag) {
 	cellAnnDf <- as.data.frame(read_excel(paste(intePf, "ALL_POS_MARKERS.xlsx", sep = "")))
 	rownames(cellAnnDf) <- cellAnnDf[,1]
 	cellAnnDf[,1] <- NULL
+	cellMarkerDf <- cellAnnDf
 	cellAnnDf <- cellAnnDf[!is.na(cellAnnDf$cell_type),]
 	print(head(cellAnnDf))
 	proObj@meta.data$major_cell_type <- "NA"
@@ -262,6 +263,36 @@ if (majorVisFlag) {
 		proObj@meta.data$major_cell_type[proObj@meta.data$seurat_clusters == ic] <- cellAnnDf$cell_type[cellAnnDf$cluster == ic]
 	}
 	print(head(proObj@meta.data))
+
+	cat("Heatmaps\n")
+	topMarkers <- cellMarkerDf %>% group_by(cluster) %>% top_n(n = 5, wt = avg_log2FC)
+	figs1d <- DoHeatmap(object = proObj, features = topMarkers$gene) + NoLegend()
+	ggsave(paste(intePf, "FigS1D_top5_marker_heatmap.png", sep = ""), figs1d, dpi = 300, width = 24, height = 18)
+#	saveRDS(figs1d, paste(intePf, "FigS1D_sc_top5_marker_heatmap.RDS", sep = ""))
+
+	c <- 0
+	for (imct in unique(proObj@meta.data$major_cell_type)) {
+		cat("Caculating", imct, "\n")
+		tmpMarkers <- FindMarkers(proObj, only.pos = T, min.pct = 0.25, logfc.threshold = 0.25, group.by = "major_cell_type", ident.1 = imct)
+		tmpMarkers$gene <- rownames(tmpMarkers)
+		tmpMarkers$cluster <- imct
+		if (c == 0) {
+			gnrlMarkerDf <- tmpMarkers
+		} else {
+			gnrlMarkerDf <- rbind(gnrlMarkerDf, tmpMarkers)
+		}
+		c <- c+1
+	}
+	print(head(gnrlMarkerDf))
+	write.csv(gnrlMarkerDf, paste(intePf, "ALL_POS_MARKERS_MAJOR_CELL_TYPE.csv"))
+
+	cols <- brewer.pal(length(unique(gnrlMarkerDf$cluster)), "Spectral")
+	names(cols) <- unique(gnrlMarkerDf$cluster)
+
+	topMarkers <- gnrlMarkerDf %>% group_by(cluster) %>% top_n(n = 10, wt = avg_log2FC)
+	figs1i <- DoHeatmap(object = proObj, features = topMarkers$gene, group.colors = cols, group.by = "major_cell_type") + NoLegend() # TODO: color is NOT aligned!
+	ggsave(paste(intePf, "FigS1I_top10_marker_mct_heatmap.png", sep = ""), figs1i, dpi = 300, width = 24, height = 18)
+	saveRDS(figs1i, paste(intePf, "FigS1I_mc_top10_marker_heatmap.RDS", sep = ""))
 
 	cat("Cell proportions\n")
 
@@ -310,7 +341,6 @@ if (majorVisFlag) {
 
 	cmRatio <- rbind(cmSpr, pdl1Spr)
 
-
 	figs1g <- ggplot(cmRatio, aes(x = PDL1_status, y = CM_ratio, fill = patient)) +
 		geom_bar(stat = "identity", color = "gray", position = "dodge") +
 		scale_fill_brewer(palette = "Dark2") +
@@ -329,7 +359,10 @@ if (majorVisFlag) {
 	ggsave(plot = figs1b, filename = paste(intePf, "FigS1B_UMAP.png", sep = ""), dpi = 300, width = 9, heigh = 6)
 	saveRDS(figs1b, paste(intePf, "FigS1B.RDS", sep = ""))
 
-	figs1f <- DimPlot(proObj, reduction = "umap", label = FALSE, group.by = "major_cell_type") + labs(color = "General cell type\nin TME", title = "Annotated and merged cell types")
+	figs1f <- DimPlot(proObj, reduction = "umap", label = TRUE, group.by = "major_cell_type") + 
+		labs(color = "General cell type\nin TME", title = "Annotated and merged cell types") +
+		scale_color_brewer(palette = "Spectral")
+
 	ggsave(plot = figs1f, filename = paste(intePf, "FigS1F_UMAP.png", sep = ""), dpi = 600, width = 9, heigh = 6)
 	saveRDS(figs1f, paste(intePf, "FigS1F.RDS", sep = ""))
 
