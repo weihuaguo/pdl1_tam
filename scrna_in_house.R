@@ -264,12 +264,47 @@ if (majorVisFlag) {
 	}
 	print(head(proObj@meta.data))
 
+	sigMarkers <- c("EPCAM", "KRT19", "COL1A1", "DCN", "VWF", "PECAM1", "CD3D", "CD8A", "CD4", "MS4A1", "CD27", "JCHAIN", "CD14", "CD68", "HLA-DRA", "CD1C", "KIT", "ITGAM")
+	sigExpr <- proObj[['integrated']]@data[sigMarkers,]
+	sigExpr <- as.data.frame(sigExpr)
+	sigExpr$gene <- rownames(sigExpr)
+#	print(dim(sigExpr))
+#	print(sigExpr[1:9,1:6])
+
+	gathExpr <- gather(sigExpr, "cell_id", "expr", rownames(proObj@meta.data))
+	gathExpr <- merge(gathExpr, proObj@meta.data, by.x = "cell_id", by.y = "row.names", all.x = TRUE)
+	gathExpr$gene <- factor(gathExpr$gene, levels = sigMarkers)
+#	print(head(gathExpr))
+
+	figs1e <- ggplot(gathExpr, aes(x = seurat_clusters, y = expr, fill = seurat_clusters)) +
+		geom_violin(scale = "width", trim = TRUE) +
+		facet_wrap(.~gene, nrow = 1, scales = "free_x") +
+		labs(x = "Cluster (r = 0.8)", y = "Normalized expression", fill = "Cluster (r = 0.8)") +
+		coord_flip() +
+		theme_classic()
+	ggsave(plot = figs1e, filename = paste(intePf, "FigS1E_sc_violin_plot_for_cell_annotation.png", sep = ""), 
+	       dpi = 300, width = 16, height = 4.5) # FigS1x
+	saveRDS(figs1e, paste(intePf, "FigS1E_sc_violin_plot_for_cell_annotation.RDS", sep = ""))
+
+
+	figs1j <- ggplot(gathExpr, aes(x = major_cell_type, y = expr, fill = major_cell_type)) +
+		geom_violin(scale = "width", trim = TRUE) +
+		facet_wrap(.~gene, nrow = 1, scales = "free_x") +
+		scale_fill_brewer(palette = "Spectral") +
+		labs(x = "General cell type in TME", y = "Normalized expression", fill = "General cell type\nin TME") +
+		coord_flip() +
+		theme_classic()
+	ggsave(plot = figs1j, filename = paste(intePf, "FigS1J_mc_violin_plot_for_cell_annotation.png", sep = ""), 
+	       dpi = 300, width = 16, height = 2.5) # FigS1x
+	saveRDS(figs1j, paste(intePf, "FigS1J_mc_violin_plot_for_cell_annotation.RDS", sep = ""))
+
 	cat("Heatmaps\n")
 	topMarkers <- cellMarkerDf %>% group_by(cluster) %>% top_n(n = 5, wt = avg_log2FC)
 	figs1d <- DoHeatmap(object = proObj, features = topMarkers$gene) + NoLegend()
 	ggsave(paste(intePf, "FigS1D_top5_marker_heatmap.png", sep = ""), figs1d, dpi = 300, width = 24, height = 18)
-#	saveRDS(figs1d, paste(intePf, "FigS1D_sc_top5_marker_heatmap.RDS", sep = ""))
+	saveRDS(figs1d, paste(intePf, "FigS1D_sc_top5_marker_heatmap.RDS", sep = ""))
 
+	if (FALSE) { # NOTE: To save some time
 	c <- 0
 	for (imct in unique(proObj@meta.data$major_cell_type)) {
 		cat("Caculating", imct, "\n")
@@ -285,17 +320,22 @@ if (majorVisFlag) {
 	}
 	print(head(gnrlMarkerDf))
 	write.csv(gnrlMarkerDf, paste(intePf, "ALL_POS_MARKERS_MAJOR_CELL_TYPE.csv"))
+	} else {
+		gnrlMarkerDf <- read.csv(paste(intePf, "ALL_POS_MARKERS_MAJOR_CELL_TYPE.csv"), row.names = 1, header = T, check.names = F)
+	}
 
 	cols <- brewer.pal(length(unique(gnrlMarkerDf$cluster)), "Spectral")
-	names(cols) <- unique(gnrlMarkerDf$cluster)
 
 	topMarkers <- gnrlMarkerDf %>% group_by(cluster) %>% top_n(n = 10, wt = avg_log2FC)
-	figs1i <- DoHeatmap(object = proObj, features = topMarkers$gene, group.colors = cols, group.by = "major_cell_type") + NoLegend() # TODO: color is NOT aligned!
+	topOrders <- topMarkers$gene[order(topMarkers$cluster, topMarkers$avg_log2FC, decreasing = T)]
+	topOrders <- topOrders[!duplicated(topOrders)]
+	figs1i <- DoHeatmap(object = proObj, features = topMarkers$gene, group.colors = cols, group.by = "major_cell_type") + NoLegend()
+#	print(figs1i$data)
+	figs1i$data$Feature <- factor(figs1i$data$Feature, levels = topOrders)
 	ggsave(paste(intePf, "FigS1I_top10_marker_mct_heatmap.png", sep = ""), figs1i, dpi = 300, width = 24, height = 18)
 	saveRDS(figs1i, paste(intePf, "FigS1I_mc_top10_marker_heatmap.RDS", sep = ""))
 
 	cat("Cell proportions\n")
-
 	scCts <- proObj@meta.data %>%
 		group_by(patient, seurat_clusters) %>%
 		summarize(n = n())
@@ -355,7 +395,9 @@ if (majorVisFlag) {
 	ggsave(plot = figs1a, filename = paste(intePf, "FigS1A_UMAP.png", sep = ""), dpi = 300, width = 9, heigh = 6)
 	saveRDS(figs1a, paste(intePf, "FigS1A.RDS", sep = ""))
 
-	figs1b <- DimPlot(proObj, reduction = "umap", label = FALSE, group.by = "patient") + labs(color = "Sample ID", title = "Batch effect crossing samples")
+	figs1b <- DimPlot(proObj, reduction = "umap", label = FALSE, group.by = "patient") + 
+		labs(color = "Sample ID", title = "Batch effect crossing samples") +
+		scale_color_brewer(palette = "Dark2")
 	ggsave(plot = figs1b, filename = paste(intePf, "FigS1B_UMAP.png", sep = ""), dpi = 300, width = 9, heigh = 6)
 	saveRDS(figs1b, paste(intePf, "FigS1B.RDS", sep = ""))
 
@@ -367,7 +409,6 @@ if (majorVisFlag) {
 	saveRDS(figs1f, paste(intePf, "FigS1F.RDS", sep = ""))
 
 }
-# TODO: Annotated cell types (UMAP, violin of key markers, heatmap, dotplot, cell proportion crossing patients, cancer TAM ratio, batch effect)
 # TODO: Subcluster TAM/TAM+DC, check the PD-L1+ and SIGLEC15+ cell number, screen the resolution
 # TODO: Build a clustree to determine that optimal resolution
 # TODO: TAM subcluster: UMAP, marker heatmap and plots
