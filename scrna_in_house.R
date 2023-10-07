@@ -137,6 +137,8 @@ resScreen <- function(srsc, plotPf, plotDir, batchName = NULL, res = 300, ndim =
 		ggsave(plot = batchCheckGG, filename = paste(plotPf, "batch_effect_check_dimPlot.png", sep = ""),
 		       dpi = res, width = 9, height = 6)
 	}
+	bldGG <- FeaturePlot(srsc, features = c("CD274", "SIGLEC15"), blend = TRUE)
+	ggsave(paste(plotPf, "blend_pdl1_siglec15_expr_umap.png", sep = ""), bldGG, dpi = res, width = 32, height = 6)
 
 
 	for (ires in resolutions) {
@@ -155,6 +157,7 @@ resScreen <- function(srsc, plotPf, plotDir, batchName = NULL, res = 300, ndim =
 		umapGG <- DimPlot(srsc, reduction = "umap", label = TRUE)
 		ggsave(plot = umapGG, filename = paste(rppf, "UMAP.png", sep = ""), dpi = res, width = 9, heigh = 6)
 
+
 		if (!is.null(plotFeat)) {
 			cat("Start to plot feature plots and violin plots\n")
 			vlnGG <- VlnPlot(srsc, features = plotFeat, slot = "counts", log = TRUE, ncol = 3, pt.size = 0.5)
@@ -168,6 +171,10 @@ resScreen <- function(srsc, plotPf, plotDir, batchName = NULL, res = 300, ndim =
 			dotGG <- DotPlot(srsc, features = plotFeat) + RotatedAxis()
 			ggsave(plot = dotGG, filename = paste(rppf, "DotPlot_for_cell_annotation.png", sep = ""),
 			       dpi = res, width = 9, height = 6)
+
+			rdgGG <- RidgePlot(srsc, features = plotFeat, ncol = 3)
+			ggsave(paste(rppf, "ridge_plot_for_cell_annotation.png", sep = ""), rdgGG, dpi = res, width = 16, height = 18)
+
 		}
 
 		
@@ -494,6 +501,8 @@ if (tamClusterFlag) {
 
 	ist <- Sys.time()
 	subSrsc <- subset(proObj, idents = c(4,15,16)) # NOTE: ALL_POS_MARKER.xlsx
+	colnames(subSrsc@meta.data)[colnames(subSrsc@meta.data) == "integrated_snn_res.0.8"] <- "integrated_snn_res.0.0"
+#	print(head(subSrsc@meta.data))
 
 	newSrsc <- CreateSeuratObject(counts = subSrsc[["RNA"]]@counts, meta.data = subSrsc@meta.data)
 	seuratList <- SplitObject(newSrsc, split.by = "patient")
@@ -528,10 +537,10 @@ if (tamClusterFlag) {
 	cat("Analysis time cost:")
 	print(Sys.time()-pst)
 
-	all_cols <- brewer.pal(length(ress), 'Set1')
-	colnames(inteProObj@meta.data)[colnames(inteProObj@meta.data) == "integrated_snn_res.1"] <- "integrated_snn_res.0.0"
+
+	all_cols <- colorRampPalette(brewer.pal(8, "Set1"))(length(ress))
 	cltr <- clustree(inteProObj, prefix = "integrated_snn_res.") + scale_color_manual(values = all_cols)
-	ggsave(paste(subPrefix, "clustree.png", sep = ""), cltr, dpi = 300, width = 12, height = 36)
+	ggsave(paste(subPrefix, "clustree.png", sep = ""), cltr, dpi = 300, width = 12, height = 18)
 
 	cat("++++++++++++++++++++++++++++++++++++++++++++++++\n\n")
 
