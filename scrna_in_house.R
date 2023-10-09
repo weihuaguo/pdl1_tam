@@ -537,8 +537,7 @@ if (tamClusterFlag) {
 	cat("Analysis time cost:")
 	print(Sys.time()-pst)
 
-
-	all_cols <- colorRampPalette(brewer.pal(8, "Set1"))(length(ress))
+	all_cols <- colorRampPalette(brewer.pal(8, "Set1"))(length(ress)+1)
 	cltr <- clustree(inteProObj, prefix = "integrated_snn_res.") + scale_color_manual(values = all_cols)
 	ggsave(paste(subPrefix, "clustree.png", sep = ""), cltr, dpi = 300, width = 12, height = 18)
 
