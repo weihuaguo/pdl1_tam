@@ -160,7 +160,7 @@ resScreen <- function(srsc, plotPf, plotDir, batchName = NULL, res = 300, ndim =
 
 		if (!is.null(plotFeat)) {
 			cat("Start to plot feature plots and violin plots\n")
-			vlnGG <- VlnPlot(srsc, features = plotFeat, slot = "counts", log = TRUE, ncol = 3, pt.size = 0.5)
+			vlnGG <- VlnPlot(srsc, features = plotFeat, slot = "data", log = FALSE, ncol = 3, pt.size = 0.5)
 			ggsave(plot = vlnGG, filename = paste(rppf, "violin_plot_for_cell_annotation.png", sep = ""), 
 			       dpi = res, width = 16, height = 16) 
 
