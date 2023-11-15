@@ -65,7 +65,7 @@ inteSrPro <- function(srsc, plotPf, batchName = NULL, res = 300, ndim = 18, rdsS
 	ggsave(plot = elGG, filename = paste(plotPf, "Elbow.png", sep = ""), dpi = res, width = 9, heigh = 6)
 
 	srsc <- FindNeighbors(srsc, dims = 1:ndim)
-	srsc <- FindClusters(srsc)
+	srsc <- FindClusters(srsc, resolution = 0.5)
 
 	srsc <- RunUMAP(srsc, dims = 1:ndim)
 	
@@ -94,16 +94,16 @@ inteSrPro <- function(srsc, plotPf, batchName = NULL, res = 300, ndim = 18, rdsS
 	}
 	
 	srsc.markers <- FindAllMarkers(srsc, only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25)
-	topMarkers <- srsc.markers %>% group_by(cluster) %>% top_n(n = 10, wt = avg_log2FC)
+	topMarkers <- srsc.markers %>% group_by(cluster) %>% top_n(n = 10, wt = avg_logFC)
 
 	write.csv(srsc.markers, file = paste(plotPf, "ALL_POS_MARKERS.csv", sep = "")) #ST1x
 	write.csv(topMarkers, file = paste(plotPf, "top10_pos_markers.csv", sep = "")) 
 
-	topMarkers <- srsc.markers %>% group_by(cluster) %>% top_n(n = 5, wt = avg_log2FC)
+	topMarkers <- srsc.markers %>% group_by(cluster) %>% top_n(n = 5, wt = avg_logFC)
 	hm <- DoHeatmap(object = srsc, features = topMarkers$gene) + NoLegend()
 	ggsave(paste(plotPf, "top5_marker_heatmap.png", sep = ""), hm, dpi = res, width = 24, height = 18)
 
-	topDotMarkers <- srsc.markers %>% group_by(cluster) %>% top_n(n = 5, wt = avg_log2FC)
+	topDotMarkers <- srsc.markers %>% group_by(cluster) %>% top_n(n = 5, wt = avg_logFC)
 	geneMarkers <- unique(as.character(topDotMarkers$gene))
 
 	dotMarkerGG <- DotPlot(srsc, features = geneMarkers) + RotatedAxis() + coord_flip()
@@ -216,19 +216,25 @@ suppressMessages(library(readxl))
 suppressMessages(library(RColorBrewer))
 suppressMessages(library(MAST))
 suppressMessages(library(clustree))
-
+suppressMessages(library(EnhancedVolcano))
+suppressMessages(library(ComplexHeatmap))
+suppressMessages(library(circlize))
 
 workDir <- "/home/weihua/mnts/smb_plee/Group/weihua/pdl1_data_hub"
 dataDir <- paste(workDir, "1_inhouse_scrna_seq", sep = "/") # Please change this to repeat the work
 resDir <- paste(workDir, "2_inhouse_scrna_seq_result", sep = "/")
 
-expID <- "inhouse_3prime_tumor"
+expID <- "inhouse_3prime_tumor_final"
 readFlag <- FALSE
 inteFlag <- FALSE
 inteFilter <- 100 # Minimum cell number for integration
 clstFlag <- FALSE
 majorVisFlag <- FALSE
-tamClusterFlag <- TRUE
+tamClusterFlag <- FALSE
+tamVisFlag <- FALSE
+tamDEFlag <- FALSE
+m12Flag <- FALSE
+cciFlag <- FALSE
 
 dir.create(file.path(resDir, expID), showWarnings = FALSE)
 expDir <- paste(resDir, expID, sep = "/")
@@ -344,6 +350,7 @@ if (majorVisFlag) {
 	cellAnnDf <- cellAnnDf[!is.na(cellAnnDf$cell_type),]
 	print(head(cellAnnDf))
 	proObj@meta.data$major_cell_type <- "NA"
+	print(head(proObj@meta.data))
 	for (ic in cellAnnDf$cluster) {
 		proObj@meta.data$major_cell_type[proObj@meta.data$seurat_clusters == ic] <- cellAnnDf$cell_type[cellAnnDf$cluster == ic]
 	}
@@ -364,7 +371,7 @@ if (majorVisFlag) {
 	figs1e <- ggplot(gathExpr, aes(x = seurat_clusters, y = expr, fill = seurat_clusters)) +
 		geom_violin(scale = "width", trim = TRUE) +
 		facet_wrap(.~gene, nrow = 1, scales = "free_x") +
-		labs(x = "Cluster (r = 0.8)", y = "Normalized expression", fill = "Cluster (r = 0.8)") +
+		labs(x = "Cluster (r = 0.5)", y = "Normalized expression", fill = "Cluster (r = 0.5)") +
 		coord_flip() +
 		theme_classic()
 	ggsave(plot = figs1e, filename = paste(intePf, "FigS1E_sc_violin_plot_for_cell_annotation.png", sep = ""), 
@@ -379,12 +386,12 @@ if (majorVisFlag) {
 		labs(x = "General cell type in TME", y = "Normalized expression", fill = "General cell type\nin TME") +
 		coord_flip() +
 		theme_classic()
-	ggsave(plot = figs1j, filename = paste(intePf, "FigS1J_mc_violin_plot_for_cell_annotation.png", sep = ""), 
+	ggsave(plot = figs1j, filename = paste(intePf, "FigS1I_mc_violin_plot_for_cell_annotation.png", sep = ""), 
 	       dpi = 300, width = 16, height = 2.5) # FigS1x
-	saveRDS(figs1j, paste(intePf, "FigS1J_mc_violin_plot_for_cell_annotation.RDS", sep = ""))
+	saveRDS(figs1j, paste(intePf, "FigS1I_mc_violin_plot_for_cell_annotation.RDS", sep = ""))
 
 	cat("Heatmaps\n")
-	topMarkers <- cellMarkerDf %>% group_by(cluster) %>% top_n(n = 5, wt = avg_log2FC)
+	topMarkers <- cellMarkerDf %>% group_by(cluster) %>% top_n(n = 5, wt = avg_logFC)
 	figs1d <- DoHeatmap(object = proObj, features = topMarkers$gene) + NoLegend()
 	ggsave(paste(intePf, "FigS1D_top5_marker_heatmap.png", sep = ""), figs1d, dpi = 300, width = 24, height = 18)
 	saveRDS(figs1d, paste(intePf, "FigS1D_sc_top5_marker_heatmap.RDS", sep = ""))
@@ -404,21 +411,56 @@ if (majorVisFlag) {
 		c <- c+1
 	}
 	print(head(gnrlMarkerDf))
-	write.csv(gnrlMarkerDf, paste(intePf, "ALL_POS_MARKERS_MAJOR_CELL_TYPE.csv"))
+	write.csv(gnrlMarkerDf, paste(intePf, "ALL_POS_MARKERS_MAJOR_CELL_TYPE.csv", sep = ""))
 	} else {
-		gnrlMarkerDf <- read.csv(paste(intePf, "ALL_POS_MARKERS_MAJOR_CELL_TYPE.csv"), row.names = 1, header = T, check.names = F)
+		gnrlMarkerDf <- read.csv(paste(intePf, "ALL_POS_MARKERS_MAJOR_CELL_TYPE.csv", sep = ""), row.names = 1, header = T, check.names = F)
 	}
 
 	cols <- brewer.pal(length(unique(gnrlMarkerDf$cluster)), "Spectral")
 
-	topMarkers <- gnrlMarkerDf %>% group_by(cluster) %>% top_n(n = 10, wt = avg_log2FC)
-	topOrders <- topMarkers$gene[order(topMarkers$cluster, topMarkers$avg_log2FC, decreasing = T)]
+	topMarkers <- gnrlMarkerDf %>% group_by(cluster) %>% top_n(n = 5, wt = avg_logFC)
+	topOrders <- topMarkers$gene[order(topMarkers$cluster, topMarkers$avg_logFC, decreasing = T)]
 	topOrders <- topOrders[!duplicated(topOrders)]
 	figs1i <- DoHeatmap(object = proObj, features = topMarkers$gene, group.colors = cols, group.by = "major_cell_type") + NoLegend()
 #	print(figs1i$data)
 	figs1i$data$Feature <- factor(figs1i$data$Feature, levels = topOrders)
-	ggsave(paste(intePf, "FigS1I_top10_marker_mct_heatmap.png", sep = ""), figs1i, dpi = 300, width = 24, height = 18)
-	saveRDS(figs1i, paste(intePf, "FigS1I_mc_top10_marker_heatmap.RDS", sep = ""))
+	ggsave(paste(intePf, "FigS1H_top5_marker_mct_heatmap.png", sep = ""), figs1i, dpi = 300, width = 24, height = 18)
+	saveRDS(figs1i, paste(intePf, "FigS1H_mc_top5_marker_heatmap.RDS", sep = ""))
+
+	geneExpr <- AverageExpression(proObj, features = topMarkers$gene, group.by = "major_cell_type") 
+	geneExpr <- as.data.frame(geneExpr$RNA)
+	cellType <- data.frame(colnames(geneExpr))
+	colnames(cellType) <- 'General cell type in TME'
+	ann_cols <- brewer.pal(length(unique(topMarkers$cluster)), "Spectral")
+	names(ann_cols) <- unique(topMarkers$cluster)[order(unique(topMarkers$cluster))]
+	print(ann_cols)
+	top_anno = HeatmapAnnotation(df = cellType,
+				     border = T,
+				     show_annotation_name = F,
+				     gp = gpar(col = 'black'),
+				     col = list(`General cell type in TME` = ann_cols))
+	marker_exp <- t(scale(t(geneExpr),scale = T,center = T))
+	print(topMarkers$gene)
+	print(rownames(marker_exp))
+	print(dim(topMarkers))
+	print(dim(marker_exp))
+	avgHm <- Heatmap(marker_exp,
+			 name = "Z-score\n(Average expression)",
+		cluster_rows = F,
+		cluster_columns = F,
+		show_column_names = F,
+		show_row_names = T,
+		row_order = order(topMarkers$cluster),
+		heatmap_legend_param = list(title = ""),
+		col = colorRampPalette(c("#2fa1dd", "white", "#f87669"))(100),
+		border = 'black',
+		rect_gp = gpar(col = "black", lwd = 1),
+		row_names_gp = gpar(fontsize = 10),
+		column_names_gp = gpar(fontsize = 10),
+		top_annotation = top_anno)
+	png(filename = paste(intePf, "FigS1H_mc_top5_marker_avg_heatmap.png", sep = ""),res = 600, width = 6, height = 8,units = "in")
+	print(draw(avgHm, merge_legend = T))
+	dev.off()
 
 	cat("Cell proportions\n")
 	scCts <- proObj@meta.data %>%
@@ -428,7 +470,7 @@ if (majorVisFlag) {
 	figs1c <- ggplot(scCts, aes(x = patient, y = n, fill = seurat_clusters)) +
 		geom_bar(stat = "identity", position = "fill", color = "gray") +
 		coord_flip() +
-		labs(x = "Sample ID", y = "Cell proportion", fill = "Cluster (r = 0.8)") +
+		labs(x = "Sample ID", y = "Cell proportion", fill = "Cluster (r = 0.5)") +
 		theme_classic()
 	ggsave(plot = figs1c, filename = paste(intePf, "FigS1C_BAR.png", sep = ""), dpi = 300, width = 9, heigh = 6)
 	saveRDS(figs1c, paste(intePf, "FigS1C.RDS", sep = ""))
@@ -444,9 +486,10 @@ if (majorVisFlag) {
 		coord_flip() +
 		labs(x = "Sample ID", y = "Cell proportion", fill = "General cell type\nin TME") +
 		theme_classic()
-	ggsave(plot = figs1h, filename = paste(intePf, "FigS1H_BAR.png", sep = ""), dpi = 300, width = 9, heigh = 6)
-	saveRDS(figs1h, paste(intePf, "FigS1H.RDS", sep = ""))
-
+	ggsave(plot = figs1h, filename = paste(intePf, "FigS1G_BAR.png", sep = ""), dpi = 300, width = 9, heigh = 6)
+	saveRDS(figs1h, paste(intePf, "FigS1G.RDS", sep = ""))
+	
+	if (FALSE) {# FPDL1 counts here are not neccessary.
 	proObj@meta.data$PDL1_expr <- proObj[["RNA"]]@data["CD274",]
 	proObj@meta.data$PDL1_status <- ifelse(proObj@meta.data$PDL1_expr > 0, "PDL1+", "PDL1-")
 
@@ -474,9 +517,10 @@ if (majorVisFlag) {
 		theme_classic()
 	ggsave(plot = figs1g, filename = paste(intePf, "FigS1G_BAR.png", sep = ""), dpi = 300, width = 9, heigh = 6)
 	saveRDS(figs1g, paste(intePf, "FigS1G.RDS", sep = ""))
+	} # FPDL1
 
 	cat("UMAPs\n")
-	figs1a <- DimPlot(proObj, reduction = "umap", label = TRUE) + labs(color = "Clusters (r = 0.8)", title = "")
+	figs1a <- DimPlot(proObj, reduction = "umap", label = TRUE) + labs(color = "Clusters (r = 0.5)", title = "")
 	ggsave(plot = figs1a, filename = paste(intePf, "FigS1A_UMAP.png", sep = ""), dpi = 300, width = 9, heigh = 6)
 	saveRDS(figs1a, paste(intePf, "FigS1A.RDS", sep = ""))
 
@@ -501,13 +545,14 @@ if (tamClusterFlag) {
 
 	ist <- Sys.time()
 	subSrsc <- subset(proObj, idents = c(4,15,16)) # NOTE: ALL_POS_MARKER.xlsx
-	colnames(subSrsc@meta.data)[colnames(subSrsc@meta.data) == "integrated_snn_res.0.8"] <- "integrated_snn_res.0.0"
+	subSrsc <- subset(proObj, idents = c(5,12)) # NOTE: ALL_POS_MARKER.xlsx
+	colnames(subSrsc@meta.data)[colnames(subSrsc@meta.data) == "integrated_snn_res.0.5"] <- "integrated_snn_res.0.0"
 #	print(head(subSrsc@meta.data))
 
 	newSrsc <- CreateSeuratObject(counts = subSrsc[["RNA"]]@counts, meta.data = subSrsc@meta.data)
 	seuratList <- SplitObject(newSrsc, split.by = "patient")
 	
-	subFolder <- "tam_sub_cluster"
+	subFolder <- "myeloid_sub_cluster"
 	dir.create(file.path(expDir, subFolder), showWarnings = FALSE)
 	subDir <- paste(expDir, subFolder, sep = "/")
 	subPrefix <- paste(subDir, "/", expID, "_", subFolder, "_", sep = "")
@@ -530,7 +575,7 @@ if (tamClusterFlag) {
 	print(Sys.time()-ist)
 
 	pst <- Sys.time()
-	ress <- c(seq(0.1,0.9, 0.1), seq(1.0,2.0,0.2))
+	ress <- c(seq(0.1,1.2, 0.1))#, seq(1.0,2.0,0.2))
 	geneOi <- c("CD14", "CD68", "HLA-DRA", "CD274", "SIGLEC15", "PDCD1LG2", "CD1C", "ITGAX", "FCER1A", "TPSAB1", "KIT", "FUT4")
 	inteProObj <- resScreen(inteObjs, plotPf = subPrefix, plotDir = subDir, rdsSave = TRUE, jsFlag = FALSE, ndim = 20,
 				batchName = c("patient"), plotFeat = geneOi, resolutions = ress)
@@ -539,13 +584,629 @@ if (tamClusterFlag) {
 
 	all_cols <- colorRampPalette(brewer.pal(8, "Set1"))(length(ress)+1)
 	cltr <- clustree(inteProObj, prefix = "integrated_snn_res.") + scale_color_manual(values = all_cols)
-	ggsave(paste(subPrefix, "clustree.png", sep = ""), cltr, dpi = 300, width = 12, height = 18)
-
+	ggsave(paste(subPrefix, "clustree.png", sep = ""), cltr, dpi = 300, width = 12, height = 12) # FigS2
 	cat("++++++++++++++++++++++++++++++++++++++++++++++++\n\n")
+}
+
+if (tamVisFlag) {
+	use_res <- 0.5
+	subFolder <- "myeloid_sub_cluster"
+	subDir <- paste(expDir, subFolder, sep = "/")
+	resFolder <- paste("tam_subcluster_res", use_res, sep = "_")
+	tamPf <- paste(expDir, "/", subFolder, "/", resFolder, "/", resFolder, "_", sep = "")
+	tamObj <- readRDS(paste(tamPf, "Seurat_Objects_Clustered.RDS", sep = ""))
+	print(tamObj)
+	cellAnnDf <- as.data.frame(read_excel(paste(tamPf, "ALL_POS_MARKERS.xlsx", sep = "")))
+	rownames(cellAnnDf) <- cellAnnDf[,1]
+	cellAnnDf[,1] <- NULL
+	cellMarkerDf <- cellAnnDf
+	cellAnnDf <- cellAnnDf[!is.na(cellAnnDf$myeloid_type),]
+	print(head(cellAnnDf))
+
+	cols <- brewer.pal(length(unique(cellAnnDf$myeloid_type)), "Set2")
+	names(cols) <- unique(cellAnnDf$myeloid_type)
+	cols['PD-L1- mo/macrophage'] <- "dodgerblue"
+	cols['PD-L1+ mo/macrophage'] <- "firebrick"
+
+	pdl1_cols <- c("PD-L1- mo/macrophage" = "dodgerblue", "PD-L1+ mo/macrophage" = "firebrick")
+
+	tamObj@meta.data$myeloid_type <- "NA"
+	for (ic in cellAnnDf$cluster) {
+		tamObj@meta.data$myeloid_type[tamObj@meta.data$seurat_clusters == ic] <- cellAnnDf$myeloid_type[cellAnnDf$cluster == ic]
+	}
+#	print(head(tamObj@meta.data))
+	tamObj@meta.data$PDL1_expr <- tamObj[['RNA']]@data["CD274",]
+	tamObj@meta.data$SIGLEC15_expr <- tamObj[['RNA']]@data["SIGLEC15",]
+	tamObj@meta.data$PDL1_SIGLEC15_PN <- ifelse(tamObj@meta.data$PDL1_expr == 0, 
+						    ifelse(tamObj@meta.data$SIGLEC15_expr == 0, "PD-L1- SIGLEC15-", "SIGLEC15+"), 
+						    ifelse(tamObj@meta.data$SIGLEC15_expr == 0, "PD-L1+", "PD-L1+ SIGLEC15+")
+	)
+
+	cat("Heatmaps\n")
+	topMarkers <- cellMarkerDf %>% group_by(cluster) %>% top_n(n = 5, wt = avg_logFC)
+	figs3c <- DoHeatmap(object = tamObj, features = topMarkers$gene) + NoLegend()
+	ggsave(paste(tamPf, "FigS3C_top5_marker_heatmap.png", sep = ""), figs3c, dpi = 300, width = 18, height = 12)
+	saveRDS(figs3c, paste(tamPf, "FigS3C_sc_top5_marker_heatmap.RDS", sep = ""))
+
+	true_pn <- tamObj@meta.data %>%
+		group_by(seurat_clusters, PDL1_SIGLEC15_PN) %>%
+		summarize(nCell = n())
+	spr_pn <- spread(true_pn[,c("seurat_clusters", "PDL1_SIGLEC15_PN", "nCell")], "PDL1_SIGLEC15_PN", "nCell")
+	spr_pn[is.na(spr_pn)] <- 0
+	gath_pn <- gather(spr_pn, "PDL1_SIGLEC15_PN", "nCell", unique(true_pn$PDL1_SIGLEC15_PN))
+	gath_pn <- merge(gath_pn, cellAnnDf[,c("cluster", "myeloid_type")], by.x = "seurat_clusters", by.y = "cluster", all.x = T)
+	write.csv(gath_pn, paste(tamPf, "true_pn_counts.csv", sep = "")) #ST1
+
+	plot_pn <- gath_pn[gath_pn$PDL1_SIGLEC15_PN %in% c("PD-L1+", "SIGLEC15+"),]
+	plot_pn <- plot_pn %>% group_by("PDL1_SIGLEC15_PN") %>% mutate(pos_total_num = sum(nCell))
+	plot_pn <- plot_pn[str_detect(plot_pn$myeloid_type, "macrophage"),]
+	plot_pn$pos_per <- plot_pn$nCell/plot_pn$pos_total_num * 100
+	pn_gg <- ggplot(plot_pn, aes(x = myeloid_type, y = pos_per)) +
+		geom_boxplot(aes(fill = myeloid_type), alpha = 0.2) +
+		geom_point(aes(color = seurat_clusters)) +
+		stat_compare_means(aes(group = myeloid_type), label = "p.signif") +
+		facet_wrap(~PDL1_SIGLEC15_PN, nrow = 1, scales = "free") +
+		scale_fill_manual(values = pdl1_cols) +
+		labs(x = "PD-L1 status", y = "Percentage of TP cells within each cluster to total TP cell number", color = "Cluster (r = 0.5)", fill = "PD-L1 status") +
+		theme_classic() +
+		theme(axis.text.x = element_blank())
+	ggsave(paste(tamPf, "FigS3X_true_positive_relative_pct_boxplot.png", sep = ""), pn_gg, dpi = 300, width = 7.5, height = 6)
+
+	if (FALSE) {#FPN
+	gath_pn <- gath_pn %>%
+		group_by(seurat_clusters) %>%
+		mutate(nCluster = sum(nCell))
+	gath_pn$PDL1_SIGLEC15_PN <- factor(gath_pn$PDL1_SIGLEC15_PN, levels = c("PD-L1+", "SIGLEC15+", "PD-L1- SIGLEC15-", "PD-L1+ SIGLEC15+"))
+	figs3h <- ggplot(gath_pn, aes(x = PDL1_SIGLEC15_PN, y = nCell, fill = seurat_clusters)) +
+		geom_bar(stat = "identity", position = "fill", color = "black") +
+		labs(y = "Relative cell number", x = "Monocyte/macrophage type based on \nnon-zero normalized expression", fill = "Cluster (r = 0.5)") +
+		coord_flip() +
+		guides(fill=guide_legend(nrow=2,byrow=TRUE)) +
+		theme_classic() +
+		theme(legend.position = "top")
+	ggsave(plot = figs3h, filename = paste(tamPf, "FigS3H_true_pn_bar.png", sep = ""), dpi = 300, width = 9, heigh = 3)
+	saveRDS(figs3h, paste(tamPf, "FigS3H_true_pn_bar.RDS", sep = ""))
+	} #FPN
+
+	figs3f <- FeaturePlot(tamObj, features = c("CD274", "SIGLEC15"), blend = T)
+	ggsave(plot = figs3f, filename = paste(tamPf, "FigS3F_UMAP_blend_pdl1.png", sep = ""), dpi = 300, width = 18, heigh = 4)
+	saveRDS(figs3f, paste(tamPf, "FigS3F.RDS", sep = ""))
+
+	cat("UMAPs\n")
+	figs3a <- DimPlot(tamObj, reduction = "umap", label = TRUE) + labs(color = "Clusters (r = 0.5)", title = "")
+	ggsave(plot = figs3a, filename = paste(tamPf, "FigS3A_UMAP_all_tam_cluster.png", sep = ""), dpi = 300, width = 9, heigh = 6)
+	saveRDS(figs3a, paste(tamPf, "FigS3A.RDS", sep = ""))
+
+	figs3b <- DimPlot(tamObj, reduction = "umap", label = FALSE, group.by = "patient") + 
+		labs(color = "Sample ID", title = "Batch effect crossing samples") +
+		scale_color_brewer(palette = "Dark2")
+	ggsave(plot = figs3b, filename = paste(tamPf, "FigS3B_UMAP_all_tam_batch.png", sep = ""), dpi = 300, width = 9, heigh = 6)
+	saveRDS(figs3b, paste(tamPf, "FigS3B.RDS", sep = ""))
+
+	fig1a <- DimPlot(tamObj, reduction = "umap", label = TRUE, group.by = "myeloid_type") + 
+		labs(color = "Myeloid cell types", title = "Annotated and merged cell types") +
+#		scale_color_brewer(palette = "Set3") +
+		scale_color_manual(values = cols)
+	ggsave(plot = fig1a, filename = paste(tamPf, "Fig1A_UMAP_all_myeloid_pdl1.png", sep = ""), dpi = 600, width = 9, heigh = 6)
+	saveRDS(fig1a, paste(tamPf, "Fig1A.RDS", sep = ""))
+
+	sigMarkers <- c("CD14", "CD68", "HLA-DRA", "CD1C", "CST3", "GPX1", "KIT", "TPSAB1", "CLEC4C", "CEACAM8", "CTAG2", "S100A9", "MARC1")#, "CD274", "SIGLEC15", "CD3D")
+	inteGenes <- rownames(tamObj[['integrated']]@data)
+	rnaGenes <- rownames(tamObj[['RNA']]@data)
+	olGenes <- intersect(sigMarkers, inteGenes)
+	diffGenes <- setdiff(sigMarkers, inteGenes)
+	diffRNAGenes <- setdiff(diffGenes, rnaGenes)
+	rnaOlGenes <- intersect(diffGenes, rnaGenes)
+
+#	print(olGenes)
+#	print(diffGenes)
+#	print(rnaOlGenes)
+	print(diffRNAGenes)
+#	q(save = "no")
+	inteExpr <- tamObj[['integrated']]@data[olGenes,]
+	rnaExpr <- tamObj[['RNA']]@data[rnaOlGenes,]
+
+	inteExpr <- as.data.frame(inteExpr)
+	rnaExpr <- as.data.frame(rnaExpr)
+	sigExpr <- rbind(inteExpr, rnaExpr)
+	sigExpr$gene <- rownames(sigExpr)
+	print(dim(sigExpr))
+	print(sigExpr[1:9,1:6])
+#	q(save = "no")
+
+	gathExpr <- gather(sigExpr, "cell_id", "expr", rownames(tamObj@meta.data))
+	gathExpr <- merge(gathExpr, tamObj@meta.data, by.x = "cell_id", by.y = "row.names", all.x = TRUE)
+	gathExpr$gene <- factor(gathExpr$gene, levels = sigMarkers)
+	print(head(gathExpr))
+
+	figs3d <- ggplot(gathExpr, aes(x = seurat_clusters, y = expr, fill = seurat_clusters)) +
+		geom_violin(scale = "width", trim = TRUE) +
+		coord_flip() +
+		facet_grid(myeloid_type~gene, space = "free_y", scale = "free_y", switch = NULL) +
+		labs(x = "Cluster (r = 0.5)", y = "Normalized expression", fill = "Cluster (r = 0.5)") +
+		theme_classic() +
+		theme(strip.text.y = element_text(angle = 0), axis.text.x = element_blank())
+	ggsave(plot = figs3d, filename = paste(tamPf, "FigS3D_sc_violin_plot_for_cell_annotation.png", sep = ""), 
+	       dpi = 300, width = 16, height = 4.5)
+	saveRDS(figs3d, paste(tamPf, "FigS3D_sc_violin_plot_for_cell_annotation.RDS", sep = ""))
+
+
+	figs3e <- ggplot(gathExpr, aes(x = myeloid_type, y = expr, fill = myeloid_type)) +
+		geom_violin(scale = "width", trim = TRUE) +
+		facet_wrap(.~gene, nrow = 1, scales = "free_x") +
+#		scale_fill_brewer(palette = "Spectral") +
+		scale_fill_manual(values = cols) +
+		labs(x = "General cell type", y = "Normalized expression", fill = "General cell type") +
+		coord_flip() +
+		theme_classic() +
+		theme(axis.text.x = element_blank())
+	ggsave(plot = figs3e, filename = paste(tamPf, "FigS3E_mc_violin_plot_for_cell_annotation.png", sep = ""), 
+	       dpi = 300, width = 16, height = 2.5) # FigS1x
+	saveRDS(figs3e, paste(tamPf, "FigS3E_mc_violin_plot_for_cell_annotation.RDS", sep = ""))
+}
+
+if (tamDEFlag) {
+	use_res <- 0.5
+	subFolder <- "myeloid_sub_cluster"
+	subDir <- paste(expDir, subFolder, sep = "/")
+	resFolder <- paste("tam_subcluster_res", use_res, sep = "_")
+	tamPf <- paste(expDir, "/", subFolder, "/", resFolder, "/", resFolder, "_", sep = "")
+	tamObj <- readRDS(paste(tamPf, "Seurat_Objects_Clustered.RDS", sep = ""))
+	print(tamObj)
+	cellAnnDf <- as.data.frame(read_excel(paste(tamPf, "ALL_POS_MARKERS.xlsx", sep = "")))
+	rownames(cellAnnDf) <- cellAnnDf[,1]
+	cellAnnDf[,1] <- NULL
+	cellMarkerDf <- cellAnnDf
+	cellAnnDf <- cellAnnDf[!is.na(cellAnnDf$myeloid_type),]
+	print(head(cellAnnDf))
+
+	cols <- brewer.pal(length(unique(cellAnnDf$myeloid_type)), "Set2")
+	names(cols) <- unique(cellAnnDf$myeloid_type)
+	cols['PD-L1- mo/macrophage'] <- "dodgerblue"
+	cols['PD-L1+ mo/macrophage'] <- "firebrick"
+
+	pdl1_cols <- c("PD-L1- mo/macrophage" = "dodgerblue", "PD-L1+ mo/macrophage" = "firebrick")
+
+	tamObj@meta.data$myeloid_type <- "NA"
+	for (ic in cellAnnDf$cluster) {
+		tamObj@meta.data$myeloid_type[tamObj@meta.data$seurat_clusters == ic] <- cellAnnDf$myeloid_type[cellAnnDf$cluster == ic]
+	}
+	tamObj@meta.data$tam_yn <- ifelse(str_detect(tamObj@meta.data$myeloid_type, "mo/macrophage"), "TAM", "Non-TAM")
+	proObj <- subset(tamObj, subset = tam_yn == "TAM")
+	print(unique(proObj@meta.data$myeloid_type))
+
+	cat("UMAPs\n")
+	if (FALSE) { #F1a
+	fig1a <- DimPlot(proObj, reduction = "umap", label = TRUE) + labs(color = "Clusters (r = 0.5)", title = "")
+	ggsave(plot = fig1a, filename = paste(tamPf, "Fig1A_UMAP_clean_tam_cluster.png", sep = ""), dpi = 300, width = 9, heigh = 6)
+	saveRDS(fig1a, paste(tamPf, "Fig1A.RDS", sep = ""))
+	} #F1a
+
+	fig1b <- FeaturePlot(proObj, features = c("CD274", "SIGLEC15"), blend = T)
+	ggsave(plot = fig1b, filename = paste(tamPf, "Fig1B_UMAP_clean_blend_pdl1.png", sep = ""), dpi = 300, width = 18, heigh = 4)
+	saveRDS(fig1b, paste(tamPf, "Fig1B.RDS", sep = ""))
+
+	fig1d <- DimPlot(proObj, reduction = "umap", label = FALSE, group.by = "myeloid_type") + 
+		labs(color = "PD-L1 status") +
+		scale_color_manual(values = pdl1_cols)
+	ggsave(plot = fig1d, filename = paste(tamPf, "Fig1D_UMAP_clean_tam_pdl1.png", sep = ""), dpi = 600, width = 9, heigh = 6)
+	saveRDS(fig1d, paste(tamPf, "Fig1D.RDS", sep = ""))
+
+	vlnGenes <- c("HLA-DRA", "C1QA", "IL1B", "CD74", "CD83", "FOS", "JUNB", "CEBPD", "SPP1", "FABP5", "CSTB", "IL1RN", "CD9", "CD52", "LPL", 
+		      "MMP9", "COL1A1", "FN1", "CD14", "CD274", "SIGLEC15")
+	for (ivg in vlnGenes) {
+		cat(ivg, "\n")
+		pdl1VlnGG <- VlnPlot(proObj, features = ivg, group.by = "myeloid_type", log = FALSE, pt.size = 0,
+				     cols = c('dodgerblue', 'firebrick')) + scale_y_continuous(limits = c(0.0, NA))
+		ggsave(plot = pdl1VlnGG, filename = paste(tamPf, ivg, "_Fig1HI_manual_selected_VlnPlot.png", sep = ""),
+		       dpi = 300, width = 5, height = 5)
+
+		pdl1VlnGG <- VlnPlot(proObj, features = ivg, group.by = "myeloid_type", log = FALSE, pt.size = 0,
+				     cols = c('dodgerblue', 'firebrick')) + scale_y_continuous(limits = c(0.0, NA)) + stat_compare_means(label = "p.signif")
+		ggsave(plot = pdl1VlnGG, filename = paste(tamPf, ivg, "_Fig1HI_manual_selected_VlnPlot_stats.png", sep = ""),
+		       dpi = 300, width = 5, height = 6)
+
+	}
+
+	de_res <- FindMarkers(proObj, ident.1 = "PD-L1+ mo/macrophage", ident.2 = "PD-L1- mo/macrophage", group.by = "myeloid_type", logfc.threshold = 0.5, test.use = "MAST")
+	print(head(de_res))
+	write.csv(de_res, paste(tamPf, "pdl1_tam_de.csv", sep = "")) # Supplementary table XX
+	plot_de <- de_res[de_res$p_val_adj < 0.05 & abs(de_res$avg_log2FC)>= 1,]
+	print(plot_de)
+	figs4a <- DotPlot(proObj, features = rownames(plot_de)[order(plot_de$avg_log2FC)], group.by = "myeloid_type") + theme(axis.text.x = element_text(angle = 45, hjust = 1))
+	ggsave(paste(tamPf, "FigS4A_dot_plot_pdl1_de.png", sep = ""), figs4a, dpi = 300, width = 24, height = 4)
+
+	labFeatures <- c("HLA-DRA", "HLA-DRB1", "HLA-DPA1", "HLA-DPB1", "HLA-DQA1", "HLA-DQA2", "HLA-DQB1", 
+			"C1QA", "C1QB", "C1QC", "IL1B", "CXCL2", "CXCL3", "CXCL8", "CCL3", "CCL4", "CCL18", 
+			"CD74", "CD83", "FOS", "FOSB", "JUN", "JUNB", "CEBPD", "FOLR2", "MS4A6A", 
+			"SPP1", "FABP4", "FABP5", "CSTB", "SPARC", "IL1RN", "CD9", "CD52", "CHI3L1", "LGALS3", 
+			"PKM", "LPL", "CHIT1", "SFRP2", "LDHA", "S100A10", "DCN", "GSN", "MMP9", "COL1A1", "COL1A2", "COL3A1", "FN1", "LUM")
+
+	deRes <- de_res
+	keyvals <- ifelse(deRes$avg_log2FC < -0.5, 'dodgerblue', 
+			  ifelse(deRes$avg_log2FC > 0.5, 'firebrick', 'grey'))
+	keyvals[is.na(keyvals)] <- 'grey'
+	names(keyvals)[keyvals == 'firebrick'] <- 'Upregulated\nin PD-L1+ mo/macrophage'
+	names(keyvals)[keyvals == 'grey'] <- 'Insiginificant genes'
+	names(keyvals)[keyvals == 'dodgerblue'] <- 'Upregulated\nin PD-L1- mo/macrophage'
+
+	ev <- EnhancedVolcano(deRes,
+			      lab = rownames(deRes),
+			      x = "avg_log2FC",
+			      y = "p_val_adj",
+			      title = "PD-L1+ vs PD-L1- mo/macrophage",
+			      subtitle = "MAST",
+			      colCustom = keyvals,
+			      colAlpha = 0.9,
+			      labSize = 3.6,
+			      pointSize = 2.0,
+			      xlim = c(-1.5, 1.5),
+			      pCutoff = 0.10,
+			      FCcutoff = 0.5,
+			      legendPosition = 'top',
+			      selectLab = labFeatures,
+			      ylab = bquote(~ '-' ~Log[10]~ 'Adjusted P-value'),
+			      drawConnectors = TRUE
+	)
+	png(paste(tamPf, "Fig1G_post_MAST_pos_vs_neg_ev.png", sep = ""), 
+	    res = 300, height = 7.2, width = 9, units = 'in')
+	print(ev)
+	gar <- dev.off()
+
 
 }
-# TODO: Subcluster TAM/TAM+DC, check the PD-L1+ and SIGLEC15+ cell number, screen the resolution
-# TODO: Build a clustree to determine that optimal resolution
-# TODO: TAM subcluster: UMAP, marker heatmap and plots
-# TODO: Supervised clustering????
-# TODO: CCI
+
+if (m12Flag) {
+	cat("Overlay the M1/M2 signatures\n")
+	use_res <- 0.5
+	subFolder <- "myeloid_sub_cluster"
+	subDir <- paste(expDir, subFolder, sep = "/")
+	resFolder <- paste("tam_subcluster_res", use_res, sep = "_")
+	tamPf <- paste(expDir, "/", subFolder, "/", resFolder, "/", resFolder, "_", sep = "")
+	tamObj <- readRDS(paste(tamPf, "Seurat_Objects_Clustered.RDS", sep = ""))
+	print(tamObj)
+	cellAnnDf <- as.data.frame(read_excel(paste(tamPf, "ALL_POS_MARKERS.xlsx", sep = "")))
+	rownames(cellAnnDf) <- cellAnnDf[,1]
+	cellAnnDf[,1] <- NULL
+	cellMarkerDf <- cellAnnDf
+	cellAnnDf <- cellAnnDf[!is.na(cellAnnDf$myeloid_type),]
+	print(head(cellAnnDf))
+
+	cols <- brewer.pal(length(unique(cellAnnDf$myeloid_type)), "Set2")
+	names(cols) <- unique(cellAnnDf$myeloid_type)
+	cols['PD-L1- mo/macrophage'] <- "dodgerblue"
+	cols['PD-L1+ mo/macrophage'] <- "firebrick"
+
+	pdl1_cols <- c("PD-L1- mo/macrophage" = "dodgerblue", "PD-L1+ mo/macrophage" = "firebrick")
+
+	tamObj@meta.data$myeloid_type <- "NA"
+	for (ic in cellAnnDf$cluster) {
+		tamObj@meta.data$myeloid_type[tamObj@meta.data$seurat_clusters == ic] <- cellAnnDf$myeloid_type[cellAnnDf$cluster == ic]
+	}
+	tamObj@meta.data$tam_yn <- ifelse(str_detect(tamObj@meta.data$myeloid_type, "mo/macrophage"), "TAM", "Non-TAM")
+	proObj <- subset(tamObj, subset = tam_yn == "TAM")
+
+	m12_sigs <- as.data.frame(read_excel(paste(subDir, "M1 vs M2 gene signature 23-4-18.xlsx", sep = ""))) # 
+	print(head(m12_sigs))
+#	print(head(rownames(proObj)))
+	all_genes <- rownames(proObj@assays[["RNA"]])
+	m1_genes <- intersect(all_genes, m12_sigs[,str_detect(colnames(m12_sigs), "M1")])
+	m2_genes <- intersect(all_genes, m12_sigs[,str_detect(colnames(m12_sigs), "M2")])
+
+
+	m1_expr <- FetchData(proObj, vars = m1_genes, slot = "data", assay = "RNA")
+	m2_expr <- FetchData(proObj, vars = m2_genes, slot = "data", assay = "RNA")
+
+	m1_cols <- colnames(m1_expr)
+	m1_expr$myeloid_type <- proObj@meta.data$myeloid_type
+	m1_expr$cid <- rownames(m1_expr)
+	m1_gath <- gather(m1_expr, "gene", "expr", m1_cols)
+	m1_gath$m <- "M1"
+	print(head(m1_gath))
+
+	m2_cols <- colnames(m2_expr)
+	m2_expr$myeloid_type <- proObj@meta.data$myeloid_type
+	m2_expr$cid <- rownames(m2_expr)
+	m2_gath <- gather(m2_expr, "gene", "expr", m2_cols)
+	m2_gath$m <- "M2"
+
+	print(head(m2_gath))
+
+	m_gath <- rbind(m1_gath, m2_gath)
+	m_avg <- m_gath %>% 
+		group_by(myeloid_type, gene, m) %>% 
+		summarize(avg = mean(expr))
+
+	m_avg_spr <- spread(m_avg, "myeloid_type", "avg")
+	m_avg_spr$gene <- str_replace_all(m_avg_spr$gene, "rna_", "")
+	m_avg_spr <- as.data.frame(m_avg_spr)
+	rownames(m_avg_spr) <- m_avg_spr$gene
+	print(m_avg_spr)
+	hm_df <- m_avg_spr[,c("PD-L1+ mo/macrophage", "PD-L1- mo/macrophage")]
+	
+	hm <- Heatmap(hm_df, row_split = m_avg_spr$m, cluster_columns = F, name = "Expression", rect_gp = gpar(col = "white", lwd = 2))
+	png(paste(subPrefix, "m12_avg_heatmap.png", sep = ""), res = 300, height = 12, width = 3, unit = 'in')
+	print(hm)
+	gar <- dev.off()
+
+	proObj@meta.data$M1_score <- rowMeans(m1_expr)
+	proObj@meta.data$M2_score <- rowMeans(m2_expr)
+
+	m12GG <- FeaturePlot(proObj, features = c("M1_score"), sort.cell = TRUE) +
+		scale_color_distiller(palette = "Spectral")
+	ggsave(plot = m12GG, filename = paste(subPrefix, "m1_umap.png", sep = ""), dpi = 300, width = 6, height = 4)
+	m12GG <- FeaturePlot(proObj, features = c("M2_score"), sort.cell = TRUE) +
+		scale_color_distiller(palette = "Spectral")
+	ggsave(plot = m12GG, filename = paste(subPrefix, "m2_umap.png", sep = ""), dpi = 300, width = 6, height = 4)
+}
+
+if (cciFlag) {
+	annot <- 'general'
+	direc <- 'out' #'in'
+	dbtype <- 'cytokine'
+	icn_basic <- TRUE
+	icn_vis <- TRUE
+	srsc <- readRDS(paste(intePf, "Seurat_Objects_Clustered.RDS", sep = ""))
+
+	if (annot == 'general') {
+		cell_names <- c('Fibroblast', 'Treg', 'CD8T', 'NonTreg_CD4T', 'B', 'Cancer', 'SMC', 'BGC', 'Endothelial', 'RBC')
+		gnrl_list <- vector(mode = 'list', length = length(cell_names))
+		names(gnrl_list) <- cell_names
+		gnrl_list[['Fibroblast']] <- c(1, 11)
+		gnrl_list[['Cancer']] <- c(0, 3, 8)
+		gnrl_list[['CD8T']] <- c(2)
+		gnrl_list[['Treg']] <- c(10)
+		gnrl_list[['NonTreg_CD4T']] <- c(6)
+		gnrl_list[['B']] <- c(14)
+		gnrl_list[['SMC']] <- c(7)
+		gnrl_list[['BGC']] <- c(13) # Basal glandular cells
+		gnrl_list[['Endothelial']] <- c(4,9)
+		gnrl_list[['RBC']] <- c(15)
+
+		for (icn in names(gnrl_list)) {
+			tmpMask <- srsc@meta.data$seurat_clusters %in% gnrl_list[[icn]]
+			srsc@meta.data[tmpMask, "cell_type"] <- icn
+			srsc@meta.data[tmpMask, "cell_check"] <- icn
+		}
+	}
+
+	use_res <- 0.5
+	subFolder <- "myeloid_sub_cluster"
+	subDir <- paste(expDir, subFolder, sep = "/")
+	resFolder <- paste("tam_subcluster_res", use_res, sep = "_")
+	tamPf <- paste(expDir, "/", subFolder, "/", resFolder, "/", resFolder, "_", sep = "")
+	tamObj <- readRDS(paste(tamPf, "Seurat_Objects_Clustered.RDS", sep = ""))
+	print(tamObj)
+	cellAnnDf <- as.data.frame(read_excel(paste(tamPf, "ALL_POS_MARKERS.xlsx", sep = "")))
+	rownames(cellAnnDf) <- cellAnnDf[,1]
+	cellAnnDf[,1] <- NULL
+	cellMarkerDf <- cellAnnDf
+	cellAnnDf <- cellAnnDf[!is.na(cellAnnDf$myeloid_type),]
+	print(head(cellAnnDf))
+
+	cols <- brewer.pal(length(unique(cellAnnDf$myeloid_type)), "Set2")
+	names(cols) <- unique(cellAnnDf$myeloid_type)
+	cols['PD-L1- mo/macrophage'] <- "dodgerblue"
+	cols['PD-L1+ mo/macrophage'] <- "firebrick"
+
+	pdl1_cols <- c("PD-L1- mo/macrophage" = "dodgerblue", "PD-L1+ mo/macrophage" = "firebrick")
+
+	tamObj@meta.data$myeloid_type <- "NA"
+	for (ic in cellAnnDf$cluster) {
+		tamObj@meta.data$myeloid_type[tamObj@meta.data$seurat_clusters == ic] <- cellAnnDf$myeloid_type[cellAnnDf$cluster == ic]
+	}
+	tamObj@meta.data$tam_yn <- ifelse(str_detect(tamObj@meta.data$myeloid_type, "mo/macrophage"), "TAM", "Non-TAM")
+	tamObj@meta.data$subtype <- ifelse(str_detect(tamObj@meta.data$myeloid_type, "mo/macrophage"), tamObj@meta.data@myeloid_type, 
+					   str_c("Non-TAM", tamObj@meta.data$seurat_clusters))
+	tam_srsc <- tamObj
+	tmp_srsc <- tam_srsc
+
+	ol_cells <- intersect(rownames(srsc@meta.data), rownames(tmp_srsc@meta.data))
+	if (length(ol_cells) != nrow(tmp_srsc@meta.data)) {stop("Missing cells!!!")}
+	srsc@meta.data[ol_cells, 'cell_type'] <- tmp_srsc@meta.data[ol_cells, 'subtype']
+	srsc@meta.data[ol_cells, 'cell_check'] <- tmp_srsc@meta.data[ol_cells, 'subtype']
+
+	if (icn_basic) {
+		cat("ICELLNET...\n")
+		cat('Direction:', direc, '\tDatabase:', dbtype, '\n')
+		plotPf <- paste(data_dir, 'icellchat_', annot, '_', direc, '_', dbtype, '_', sep = '')
+		cat('\tPrepare database...\n')
+		db <- as.data.frame(read.csv(curl::curl(url="https://raw.githubusercontent.com/soumelis-lab/ICELLNET/master/data/ICELLNETdb.tsv"), 
+					  sep="\t",header = T, check.names=FALSE, stringsAsFactors = FALSE, na.strings = ""))
+
+		db2 <- db[grepl(paste(c('Cytokine'), collapse="|"),db$Classifications),] #if you want to use all the database, do instead : db2=db
+		db2$Subfamily <- db2$Cytokines # to define subfamily of interest as cytokines. 
+
+		if (dbtype == 'overall') {
+			db_use <- db
+			db.name.couple <- name.lr.couple(db, type="Family")
+		}
+		if (dbtype == 'cytokine') {
+			db_use <- db2
+			db.name.couple <- name.lr.couple(db2, type="Subfamily")
+		}
+
+		format_db_use <- db_use
+		format_db_use <- format_db_use[!is.na(rownames(format_db_use)),]
+		format_db_use$ligand_name <- ifelse(is.na(format_db_use[,'Ligand 2']), format_db_use$`Ligand 1`, 
+							  str_c(format_db_use[, 'Ligand 1'], ' + ', format_db_use$`Ligand 2`))
+		format_db_use$receptor_name <- ifelse(is.na(format_db_use[,'Receptor 2']), format_db_use$`Receptor 1`, 
+							  str_c(format_db_use[, 'Receptor 1'], ' + ', format_db_use$`Receptor 2`))
+		format_db_use$receptor_name <- ifelse(is.na(format_db_use[,'Receptor 3']), format_db_use$receptor_name, 
+							  str_c(format_db_use$receptor_name, ' + ', format_db_use$`Receptor 3`))
+		format_db_use$LR <- str_c(format_db_use$ligand_name, ' / ', format_db_use$receptor_name)
+		write.csv(format_db_use, paste(plotPf, 'database_formated.csv', sep = ''))
+
+		cat("\tPrepare data for ICELLNET...\n")
+		data <- as.data.frame(GetAssayData(srsc, slot = "count", assay = 'RNA'))
+	#	print(dim(data))
+		target <- srsc@meta.data
+		target$cell_type <- as.character(target$cell_type)
+		target$Class <- target$cell_type
+		target$Cell <- rownames(target)
+	#	print(head(target))
+		average.manual <- matrix(ncol=length(unique(target$cell_type)), nrow=length(rownames(data)))
+		colnames(average.manual) <- unique(target$cell_type)
+		rownames(average.manual) <- rownames(data)
+	#	print(dim(average.manual))
+		for (cell in unique(target$cell_type)){
+			cells.clust=target$Cell[which(target$cell_type==cell)]
+			average.manual[,cell]=apply(data[,which(colnames(data)%in%cells.clust)], 1, mean)
+		}
+		data.icell=as.data.frame(gene.scaling(as.data.frame(average.manual), n=1, db=db_use))
+	#	print(head(data.icell))
+
+		if (annot == 'general') {
+			my.selection <- c('CD8T', 'Treg', 'NonTreg_CD4T', 'Fibroblast', 'Endothelial', 'B', 'SMC', 'Cancer')
+			my.color <- c('CD8T'='dodgerblue', 'Treg'='dodgerblue', 'NonTreg_CD4T'='dodgerblue', 
+				      'Fibroblast'='forestgreen', 'Endothelial'='forestgreen', 'B'='dodgerblue', 
+				      'SMC'='orange', 'Cancer'='firebrick')
+		}
+
+		cat('\tCalculate the score...\n')
+		my.interest <- c('PD-L1+ mo/macrophage')
+		PC.data <- as.data.frame(data.icell[,c(my.selection, "Symbol")], row.names = rownames(data.icell))
+		PC.target <- data.frame("Class"=my.selection, "ID"= my.selection, "Cell_type"=my.selection)
+		rownames(PC.target) <- my.selection
+		score.computation.out.pos <- icellnet.score(direction=direc, PC.data=PC.data, 
+						      CC.data= as.data.frame(data.icell[,my.interest], row.names = rownames(data.icell)), 
+						      PC.target = PC.target, PC=my.selection, CC.type = "RNAseq", PC.type = "RNAseq",  db = db_use)
+		score_out_pos <- as.data.frame(score.computation.out.pos[[1]])
+		lr_out_pos <- score.computation.out.pos[[2]]
+		format_lr_pos <- as.data.frame(lr_out_pos)
+		format_lr_pos$LR <- rownames(format_lr_pos)
+		format_lr_pos <- gather(format_lr_pos, 'CELL', 'PDL1+TAM', colnames(lr_out_pos))
+
+		my.interest <- c('PD-L1- mo/macrophage')
+		PC.data <- as.data.frame(data.icell[,c(my.selection, "Symbol")], row.names = rownames(data.icell))
+		PC.target <- data.frame("Class"=my.selection, "ID"= my.selection, "Cell_type"=my.selection)
+		rownames(PC.target) <- my.selection
+		score.computation.out.neg <- icellnet.score(direction=direc, PC.data=PC.data, 
+						      CC.data= as.data.frame(data.icell[,my.interest], row.names = rownames(data.icell)), 
+						      PC.target = PC.target, PC=my.selection, CC.type = "RNAseq", PC.type = "RNAseq",  db = db_use)
+		score_out_neg <- as.data.frame(score.computation.out.neg[[1]])
+		lr_out_neg <- score.computation.out.neg[[2]]
+
+		format_lr_neg <- as.data.frame(lr_out_neg)
+		format_lr_neg$LR <- rownames(format_lr_neg)
+		format_lr_neg <- gather(format_lr_neg, 'CELL', 'PDL1-TAM', colnames(lr_out_neg))
+		format_lr <- merge(format_lr_pos, format_lr_neg, by = c('LR', 'CELL'))
+		format_lr$diff <- format_lr$`PDL1+TAM` - format_lr$`PDL1-TAM`
+		format_lr <- format_lr[!is.na(format_lr$diff),] %>% arrange(desc(diff))
+		format_lr$direction <- 'TAM is sending signals (expressing ligands)'
+		format_res_df <- merge(format_lr, format_db_use, by = 'LR')
+		print(class(db_use))
+		print(head(db_use))
+		print(head(format_res_df))
+
+		write.csv(format_res_df, paste(plotPf, 'diff_sum_table.csv', sep = '')) # STx
+		if (FALSE) {#ALL REMOVE
+		print(head(format_lr))
+		print(head(format_db_use))
+		stop("TEST")
+		q(save = "no")
+
+		cat("\tPrepare for comparison...\n")
+		Scores_out <- cbind(score_out_pos, score_out_neg)
+		colnames(Scores_out) <- c("PDL1+ TAM","PDL1- TAM")
+		print(class(Scores_out))
+		for (i in 1:ncol(Scores_out)) {Scores_out[,i] <- as.numeric(Scores_out[,i])}
+
+		Scores_out.norm <- (Scores_out-min(Scores_out, na.rm = TRUE))/(max(Scores_out, na.rm = TRUE)-min(Scores_out, na.rm = TRUE))*9+1
+		print(head(Scores_out.norm))
+		Scores_out.norm_plot <- Scores_out.norm
+		cat("\t\tDirect compare normalized score...\n")
+		Scores_out.norm_plot$PC <- rownames(Scores_out.norm)
+		Scores_out.norm_plot <- gather(Scores_out.norm_plot, 'TAM', 'Norm score', colnames(Scores_out.norm))
+	#	print(head(Scores_out.norm_plot))
+		bar_gg <- ggplot(Scores_out.norm_plot, aes(y = PC, x = `Norm score`, fill = TAM)) +
+			geom_bar(stat = 'identity', position=position_dodge()) +
+			geom_text(aes(label=sprintf("%0.2f", round(`Norm score`, digits = 2))), hjust=1.5, position=position_dodge(width = 0.9),
+				  color="white", size=2.4) +
+			labs(y = 'Paterner Cells (PCs)', fill = 'Central Cells (CCs)', title = 'CC -> PC') +
+			theme_classic() +
+			theme(axis.text.x = element_text(angle = 45, hjust = 1))
+		ggsave(paste(plotPf, 'overall_norm_scores.png', sep = ''), bar_gg, dpi = res, width = 6, height = 4)
+
+		cat('\t\tNetwork visualize...\n')
+		network.plot.pos = network.create(icn.score = Scores_out.norm[1], 
+						  scale = c(round(min(Scores_out.norm)),round(max(Scores_out.norm))), 
+						  direction = direc, my.color)
+		network.plot.neg = network.create(icn.score = Scores_out.norm[2], 
+						  scale = c(round(min(Scores_out.norm)),round(max(Scores_out.norm))), 
+						  direction = direc, my.color)
+		Scores_out.norm[3] <- Scores_out.norm[1]-Scores_out.norm[2]
+		colnames(Scores_out.norm)[3] <- 'Diff'
+		network.plot.diff = network.create(icn.score = Scores_out.norm[3], 
+						  scale = c(round(min(Scores_out.norm)),round(max(Scores_out.norm))), 
+						  direction = direc, my.color)
+
+		png(paste(plotPf, 'network_vis.png', sep = ''), res = res, width = 18, height = 6, units = 'in')
+		grid.arrange(network.plot.pos, network.plot.neg, network.plot.diff, ncol=3, nrow=1)
+		gar <- dev.off()
+
+		db.name.couple[is.na(db.name.couple[,2]), 2] <- 'Others'
+
+		if (dbtype == 'overall') {
+		my_family <- c("Growth factor","Chemokine","Checkpoint","Cytokine","Notch family","Antigen binding")
+		all_family <- c("Growth factor","Chemokine","Checkpoint","Cytokine","Notch family","Antigen binding", "Others", "NA", "other")
+
+		print(all_family)
+		family_col <- colorRampPalette(brewer.pal(9,"Set1"))(length(all_family))
+		names(family_col) <- all_family
+		print(family_col)
+		}
+		if (dbtype == 'cytokine') {
+		my_family <- c("type 1", "type 2", "IL1.", "IL17", "TNF","TGF","RTK")
+		all_family <- c("type 1", "type 2", "IL1.", "IL17", "TNF","TGF","RTK", "Others", "NA", "other")
+
+		print(all_family)
+		family_col <- colorRampPalette(brewer.pal(9,"Spectral"))(length(all_family))
+		names(family_col) <- all_family
+		print(family_col)
+		}
+
+		if (FALSE) {
+		pvalue_pos <- icellnet.score.pvalue(direction=direc, PC.data=PC.data, CC.data= as.data.frame(data.icell[,c('PDL1+TAM')]),
+						    PC.target = PC.target,PC=my.selection, CC.type = "RNAseq",PC.type = "RNAseq",
+						    db = db_use,  between="cells", method="BH")
+		pvalue.plot.pos <- pvalue.plot(pvalue_pos, PC=my.selection)
+		pvalue.plot.pos
+		pvalue_pos_vs_neg <- icellnet.score.pvalue(direction=direc, PC.data=PC.data, 
+							   CC.data= as.data.frame(data.icell[,c('PDL1+TAM', 'PDL1-TAM')]),
+							   CC.data2 = as.data.frame(data.icell[,c('PDL1-TAM')]),
+						    PC.target = PC.target,PC=my.selection, CC.type = "RNAseq",PC.type = "RNAseq",
+						    db = db_use,  between="conditions", method="BH")
+		print(pvalue_pos_vs_neg)
+		stop("TEST")
+		#TODO: NOT WORKING
+		}
+		ymax <- round(max(Scores_out, na.rm = TRUE))+1 #to define the y axis range of the barplot
+
+	#	LR.family.score(lr=lr_out, my.family=all_family, db.couple=db.name.couple, plot=F) 
+		# table of contribution of each family of molecule to the scores
+
+		cat('\t\tContribution of CCI...\n')
+		print(head(lr_out_pos))
+		contrib.family.pos <- LR.family.score(lr=lr_out_pos, my.family=my_family, db.couple=db.name.couple, 
+						      plot= T, family.col=family_col, title="PDL1+ TAM")
+		contrib.family.neg <- LR.family.score(lr=lr_out_neg, my.family=my_family, db.couple=db.name.couple, 
+						      plot= T, family.col=family_col, title="PDL1- TAM")
+		png(paste(plotPf, 'overall_stack_bar.png', sep = ''), res = res, width = 12, height = 6, units = 'in')
+		grid.arrange(contrib.family.pos, contrib.family.neg, ncol=2, nrow=1)
+		gar <- dev.off()
+		cat('\t\tBallon plots...\n')
+		for (ic in my.selection) {
+			cat('\t\t\t', ic, '\n')
+			lr_ind <- cbind(lr_out_pos[,ic], lr_out_neg[,ic])
+			print(head(lr_ind))
+			print(paste0(c('PDL1+TAM_', 'PDL1-TAM_'), ic))
+			colnames(lr_ind) <- paste0(c('PDL1+TAM_', 'PDL1-TAM_'), ic)
+			delta_lr <- as.data.frame(lr_ind[which((abs(lr_ind[,1]-lr_ind[,2])>10)==TRUE),])
+			ball <- LR.balloon.plot(lr = delta_lr, thresh = 0, topn = 25, db.name.couple = db.name.couple, title = ic, 
+						family.col = family_col)
+			ggsave(paste(plotPf, ic, '_balloon_top25diff_thr0.png', sep = ''), ball, dpi = res, width = 6, height = 9)
+		}
+		} # ALL REMOVE
+	}
+}
