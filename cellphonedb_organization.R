@@ -10,7 +10,7 @@ suppressMessages(library(stringr))
 suppressMessages(library(circlize))
 suppressMessages(library(ComplexHeatmap))
 
-cpdb_out_dir <- '/home/weihua/mnts/smb_plee/Group/weihua/pdl1_data_hub/6_cellphonedb_results/'
+cpdb_out_dir <- '/home/weihua/mnts/smb_plee/Group/weihua/pdl1_data_hub/6_cci_results/'
 mean_df <- read.table(paste(cpdb_out_dir, 'means.txt', sep = ''), sep = '\t', check.names = FALSE, header = TRUE)
 sig_mean_df <- read.table(paste(cpdb_out_dir, 'significant_means.txt', sep = ''), sep = '\t', check.names = FALSE, header = TRUE)
 pval_df <- read.table(paste(cpdb_out_dir, 'pvalues.txt', sep = ''), sep = '\t', check.names = FALSE, header = TRUE)
